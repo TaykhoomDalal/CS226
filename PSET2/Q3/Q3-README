@@ -1,0 +1,9 @@
+1. hw.2-2.geno:
+genotypes for 500 individuals at 382 SNPs.
+Each row is a SNP
+Each column is an individual
+Each entry is a 0,1 ,or 2
+
+2. hw.2-2.pheno:
+Contains 4 phenotypes measured for each individual.
+Each line corresponds to the phenotype for an individual

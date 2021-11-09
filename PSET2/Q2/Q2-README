@@ -1,0 +1,9 @@
+1. hw.2-1.geno:
+genotypes for 1000 individuals at 10 SNPs.
+Each row is a SNP
+Each column is an individual
+Each entry is a 0,1 ,or 2
+
+2. hw.2-1.pheno:
+Contains 1 binary phenotype measured for each individual.
+Each line corresponds to the phenotype for an individual

@@ -1,0 +1,23 @@
+1. Q1.training.geno:
+Training set
+Genotypes for 900 individuals at 1000 SNPs.
+Each row is a SNP.
+Each column is an individual.
+Each entry is a 0 or 1.
+
+2. Q1.training.pheno:
+Training set
+Contains 1 continuous phenotype measured for each individual.
+Each line corresponds to the phenotype for an individual
+
+3. Q1.test.geno:
+Test set
+Genotypes for 100 individuals at 1000 SNPs.
+Each row is a SNP.
+Each column is an individual.
+Each entry is a 0 or 1.
+
+4. Q1.test.pheno:
+Test set
+Contains 1 continuous phenotype measured for each individual.
+Each line corresponds to the phenotype for an individual
