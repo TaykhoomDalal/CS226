@@ -7,6 +7,7 @@ from sklearn import cluster
 from sklearn.decomposition import PCA
 from sklearn.cluster import KMeans
 from collections import Counter, defaultdict
+from sklearn.metrics import accuracy_score
 
 def loadData(genotype_f):
     
@@ -279,6 +280,19 @@ def q3(X):
     plt.ylabel('PC2')
     plt.savefig('q3c.png')
     plt.clf()
+
+    a = []
+    for i in assignments:
+        if i == 3:
+            a.append('EUR')
+        elif i == 0:
+            a.append('ASN')
+        elif i == 1:
+            a.append('AFR')
+        else:
+            a.append('AMR')
+
+    print("\nThe accuracy of the kmeans clustering is: " + str(accuracy_score(labels, a, normalize = True)))
 
 
 
