@@ -1,0 +1,3 @@
+[submodule "FinalProject/code/pathogenicity_classifier/oncokb-annotator"]
+	path = FinalProject/code/pathogenicity_classifier/oncokb-annotator
+	url = https://github.com/oncokb/oncokb-annotator
