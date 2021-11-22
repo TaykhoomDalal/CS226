@@ -1,0 +1,9 @@
+This directory contains one dataset:
+
+1. Q1.data
+Contains genotype data for 2000 SNPs for 1000 individuals. 
+
+Each columns denotes a SNP, can be 0, 1 or 2. 
+Each row is an individual. 
+
+You may use the read_tsv() function in tidyverse to read in the file. 

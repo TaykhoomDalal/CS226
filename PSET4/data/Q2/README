@@ -1,0 +1,7 @@
+This directory contains one dataset:
+
+1. Q2.data
+Contains data from 1614 SNPs in three populations (Europeans, Africans and
+Asians).
+
+Each column denotes the frequency of allele 1 in the respective population.
