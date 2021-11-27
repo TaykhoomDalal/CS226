@@ -29,13 +29,14 @@ Step 1: python3 preprocess.py --input_maf [/path/to/input_file_location] --annot
 
 This step adds additional annotations from myvariant.info, OncoKB and dbScSNV and uses some of this information to create more annotations (Ex. MAF).
   
-Step 2: python3 germline_classifier.py --classifier_input [/path/to/results/from/preprocess.py] --classifier_output [/path/to/desired/classifier_output_location] --scripts_dir [/path/to/gene_annotation_data] --training_data [/path/to/training_data] --type [space separated values from type_list**] --features [/path/to/features_to_keep_file]
+Step 2: python3 germline_classifier.py --classifier_input [/path/to/results/from/preprocess.py] --classifier_output [/path/to/desired/classifier_output_location] --scripts_dir [/path/to/gene_annotation_data] --training_data [/path/to/training_data] --type [space_separated_values_from_type_list**] --features [/path/to/features_to_keep_file] --explainer [local_prediction_explanation_algorithm]
 
   This will train the Random Forest model on the provided training data and perform predictions on the output file.
 
 Test data is provided in input_data folder. 
 
 ** type_list = ['Missense', 'Splice', 'Truncating', 'Misc','In_Frame', 'Silent',  "UTR", "Intron", "IGR", "RNA"]
+** local prediction explanation algorithms = ["LIME", "TCXP", "ELI5", "SHAP"]
 
 # Example
 
