@@ -36,6 +36,7 @@ Step 2: python3 germline_classifier.py --classifier_input [/path/to/results/from
 Test data is provided in input_data folder. 
 
 ** type_list = ['Missense', 'Splice', 'Truncating', 'Misc','In_Frame', 'Silent',  "UTR", "Intron", "IGR", "RNA"]
+
 ** local prediction explanation algorithms = ["LIME", "TCXP", "ELI5", "SHAP"]
 
 # Example
