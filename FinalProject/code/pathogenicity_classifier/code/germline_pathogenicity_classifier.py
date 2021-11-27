@@ -1,23 +1,30 @@
 import pandas as pd
 import numpy as np
 import os
+from pandas.core.frame import DataFrame
 from sklearn.neural_network import MLPClassifier
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import KFold, StratifiedKFold, cross_val_score, cross_validate, StratifiedShuffleSplit
 from sklearn.metrics import make_scorer, accuracy_score, precision_score, recall_score, f1_score 
 import argparse
 from sklearn.model_selection import RandomizedSearchCV, GridSearchCV
-import shap
-from lime import lime_tabular
-from lime.lime_tabular import LimeTabularExplainer
-from lime import submodular_pick
 import matplotlib.pyplot as plt
 import xgboost as xgb
 from collections import Counter
 import matplotlib.style as style
 import matplotlib
-# from extract_feature_effect_per_prediction import create_prediction_factors_df
+
+from sklearn.svm import SVR
+
+# Local Explainers
+import shap
+from lime import lime_tabular
+from lime.lime_tabular import LimeTabularExplainer
+from lime import submodular_pick
 from tcxp import rf_explain
+from mci.evaluators.sklearn_evaluator import SklearnEvaluator
+from mci.estimators.permutation_samplling import PermutationSampling
+import eli5
 
 def remove_muts(df, types):
     
@@ -124,6 +131,184 @@ def get_gene_level_annotations():
     print(sorted(tumor_suppressors[:5]))
     return oncogenes, tumor_suppressors, gene_level_annotation
 
+# def MCI(clf, X_test, X_train, y_test, y_train):
+#     clf = RandomForestClassifier()
+#     evaluator = SklearnEvaluator(clf)
+#     mci_estimator = PermutationSampling(evaluator, n_permutations=1, out_dir='../MCI/')
+
+#     score = mci_estimator.mci_values(x=X_test, y=y_test)
+
+#     print(score.mci_values)
+#     exit()
+
+def SHAP(clf, X_test, X_train, y_test, y_train):
+    #experimenting with shapely values
+    # explainer = shap.KernelExplainer(clf.predict_proba, shap.kmeans(X_train, 5))
+    # shap_values = explainer.shap_values(X_train)
+    # f = plt.figure()
+    # shap.summary_plot(shap_values, X_train)
+    # f.savefig(os.getcwd() + "/summary_plot1.png", bbox_inches='tight', dpi=600)
+
+    explainer = shap.TreeExplainer(clf)
+
+    """
+    The shap_values[0] are explanations with respect to the negative class, while shap_values[1] are explanations with respect to the positive class. 
+    If your model predicts a probability, p, for the positive class, the negative class' predicted probability will be 1-p.
+    
+    If your model generates probabilities of each class, you most likely want index 1, not index 0.
+    """
+    shap_values = explainer.shap_values(X_test)[1]
+    W_pick = pd.DataFrame(shap_values, columns = [x + '_weight' for x in X_test.columns.tolist()])
+
+    return W_pick
+
+def TCXP(clf, X_test, X_train, y_test, y_train):
+    tc_exps, p0  = rf_explain(clf, X_test)
+    W_pick = pd.DataFrame(tc_exps, columns = [x + '_weight' for x in X_test.columns.tolist()])
+
+    return W_pick
+
+def LIME(clf, X_test, X_train, y_test, y_train):
+    # 
+        # explainer = lime_tabular.LimeTabularExplainer(X_train.values, mode='classification',training_labels=y_train,feature_names=X_train.columns.tolist(), discretize_continuous=False)
+        # l=[]
+        # for n in range(0,1000):
+        #     exp = explainer.explain_instance(X_train.values[n], clf.predict_proba, num_features=32)
+        #     a=dict(exp.as_list(exp.available_labels()[0]))
+        #     a['prediction'] = y_train.values[n]
+        #     l.append(a)
+        # W_pick = pd.DataFrame(l).fillna(0)
+
+        
+        # explainer = LimeTabularExplainer(X_train.values,class_names = [1,0], feature_names = X_train.columns, mode = 'classification', discretize_continuous=False)
+        # exp=explainer.explain_instance(X_train.to_numpy()[0],clf.predict_proba,top_labels=32)
+        # print(exp.available_labels())
+        # sp_obj = submodular_pick.SubmodularPick(data=X_train.to_numpy(),explainer=explainer,num_exps_desired=X_train.shape[0], sample_size=X_train.shape[0], predict_fn=clf.predict_proba, num_features=32)
+        # W_pick=pd.DataFrame([dict(this.as_list(this.available_labels()[0])) for this in sp_obj.sp_explanations]).fillna(0)
+        # W_pick['prediction'] = [this.available_labels()[0] for this in sp_obj.sp_explanations]
+        # W_pick.to_csv('/home/dalalt1/PathoClass/somatic-germline/pathogenicity_classifier/output_files/predictions.maf', sep = '\t', index = None)
+        
+
+        # exp.save_to_file('/home/dalalt1/PathoClass/somatic-germline/pathogenicity_classifier/fig.html')
+    explainer = lime_tabular.LimeTabularExplainer(X_test.values, mode='classification',feature_names=X_test.columns.tolist(), discretize_continuous=False, kernel_width=3)
+    l=[]
+    for n in range(0,X_test.shape[0]):
+        exp = explainer.explain_instance(X_test.values[n], clf.predict_proba, num_features=32)
+        features = exp.as_list(exp.available_labels()[0])
+        a=dict([(feature[0] + '_weight', feature[1]) for feature in features])
+        l.append(a)
+    W_pick = pd.DataFrame(l)
+
+    return W_pick
+
+def ELI5(clf, X_test, X_train, y_test, y_train):
+
+    full_features = X_test.columns.tolist()
+    full_features.append('<BIAS>')
+
+    full_features_weight = [x + '_weight' if x != '<BIAS>' else x for x in full_features]
+
+
+    dfs = []
+    for i in range(X_test.shape[0]):
+        temp_df = eli5.explain_prediction_df(clf, X_test.iloc[i], top=None)
+        features = list(temp_df.T.loc['feature'])
+        weights = list(temp_df.T.loc['weight'])
+
+        for feature in full_features:
+            if feature not in features:
+                features.append(feature)
+                weights.append(np.nan)
+
+        fs = [x + '_weight' if x != '<BIAS>' else x for x in features]
+
+        dfs.append(pd.DataFrame(data = weights, index=fs).T)
+
+    
+    W_pick = pd.concat(dfs)
+    W_pick = W_pick[full_features_weight]
+
+    return W_pick
+
+def localExplanations(explainer_name, clf, X_test, X_train, y_test, y_train):
+    
+    funcs = [LIME, TCXP, ELI5, SHAP]
+
+    for i in funcs:
+        if i.__name__ == explainer_name:
+            return i(clf, X_test, X_train, y_test, y_train).fillna(0)
+    
+def fidelityMetric(X_test, X_train, y_test, y_train):
+    explainers = ["LIME", "TCXP", "ELI5", "SHAP"]
+    scales = [0.1, 0.25]
+    scales_len = len(scales)
+    num_perturbations = 5
+    n = X_test.shape[0]
+    s = X_test.shape[1]
+
+    model = fit_svr(X_train, y_train)
+    data = []
+    for method in explainers:
+        d = pd.read_csv('../output_files/34K_'+method+'_missense_predictions.maf', sep = '\t', low_memory=False)
+        d = d.loc[:, d.columns.str.contains('_weight')] #  or d.columns.str.contains('<BIAS>')
+        data.append(d)
+    
+    # Evaluate model faithfullness on the test set
+    LIME_rmse = np.zeros((scales_len))
+    TCXP_rmse = np.zeros((scales_len))
+    ELI5_rmse = np.zeros((scales_len))
+    SHAP_rmse = np.zeros((scales_len))
+
+    for i in range(X_test.shape[0]):
+        x = X_test.iloc[i, :].to_numpy()
+
+        coefs_LIME = data[0].iloc[i,:].to_numpy()
+        coefs_TCXP = data[1].iloc[i,:].to_numpy()
+        coefs_ELI5 = data[2].iloc[i,:].to_numpy()
+        coefs_SHAP = data[3].iloc[i,:].to_numpy()
+
+        for j in range(num_perturbations):
+
+            noise = np.random.normal(loc = 0.0, scale = 1.0, size = s)
+
+            for k in range(scales_len):
+
+                scale = scales[k]
+                
+                x_pert = x + scale * noise
+
+                model_pred = model.predict(x_pert.reshape(1,-1))
+                LIME_pred = np.dot(x_pert, coefs_LIME)
+                TCXP_pred = np.dot(x_pert, coefs_TCXP)
+                ELI5_pred = np.dot(x_pert, coefs_ELI5)
+                SHAP_pred = np.dot(x_pert, coefs_SHAP)
+            
+                LIME_rmse[k] += (LIME_pred - model_pred)**2
+                TCXP_rmse[k] += (TCXP_pred - model_pred)**2
+                ELI5_rmse[k] += (ELI5_pred - model_pred)**2
+                SHAP_rmse[k] += (SHAP_pred - model_pred)**2  
+
+    LIME_rmse /= n * num_perturbations
+    TCXP_rmse /= n * num_perturbations
+    ELI5_rmse /= n * num_perturbations
+    SHAP_rmse /= n * num_perturbations
+
+    LIME_rmse = np.sqrt(LIME_rmse)
+    TCXP_rmse = np.sqrt(TCXP_rmse)         
+    ELI5_rmse = np.sqrt(ELI5_rmse)
+    SHAP_rmse = np.sqrt(SHAP_rmse)   
+
+    print("LIME_rmse: ", LIME_rmse) 
+    print("TCXP_rmse: ", TCXP_rmse) 
+    print("ELI5_rmse: ", ELI5_rmse) 
+    print("SHAP_rmse: ", SHAP_rmse) 
+
+    exit()
+    
+def fit_svr(X_train, y_train):
+    nn = SVR()
+    nn.fit(X_train, y_train)
+    return nn
 
 def main():
 
@@ -136,6 +321,7 @@ def main():
     parser.add_argument('--type', type=str, nargs='+',default=[], help='This defines what types of mutations should be removed. The possible arguments are: %s -- or any combination of the options (separated by space).' % ', '.join(map(str, type_list)))
     parser.add_argument('--features', type=str, default='features_to_keep.txt', help='This should be a .txt file containg the features to retain.')
     parser.add_argument('--scripts_dir', type=str, default=os.path.join(os.getcwd()), help='This should be the path to where the annotation file directory resides.')
+    parser.add_argument('--explainer', type=str, default=None, help='This selects which local prediction explaination algorithm to use. The choices are: ["LIME", "TCXP", "ELI5", "SHAP"]')
 
     args = parser.parse_args()
     classifier_input = args.classifier_input
@@ -144,6 +330,7 @@ def main():
     features_file = args.features
     scripts_dir = args.scripts_dir
     type_vals = args.type
+    explainer = args.explainer
 
     global gene_level_input_file, gene_function_map_input
 
@@ -242,52 +429,8 @@ def main():
     clf = RandomForestClassifier(n_estimators=300, criterion= 'gini', min_samples_leaf= 1,
                                 min_samples_split= 2, max_features=12, random_state=42, 
                                 class_weight={0: 1, 1: 4.5})
-
-    # counter = Counter(y_train)
-    # est = counter[0]/counter[1]
-    # print(est)
-    # clf = xgb.XGBClassifier(scale_pose_weight = est, verbosity = 0,  use_label_encoder = False)
-    
-    # clf = MLPClassifier(hidden_layer_sizes = (100, 10),activation='logistic', solver = 'adam', learning_rate='adaptive')
     clf.fit(X_train, y_train)
     model_name = type(clf).__name__
-
-    # cols = X_train.columns
-    # nums = X_train._get_numeric_data().columns
-    # cats = list(set(cols) - set(nums))
-
-    # nums_index = X_train.columns.get_indexer(nums)
-    # cats_index = X_train.columns.get_indexer(cats)
-
-    # explainer = lime_tabular.LimeTabularExplainer(X_train.values, mode='classification',training_labels=y_train,feature_names=X_train.columns.tolist(), discretize_continuous=False)
-    # l=[]
-    # for n in range(0,1000):
-    #     exp = explainer.explain_instance(X_train.values[n], clf.predict_proba, num_features=32)
-    #     a=dict(exp.as_list(exp.available_labels()[0]))
-    #     a['prediction'] = y_train.values[n]
-    #     l.append(a)
-    # W_pick = pd.DataFrame(l).fillna(0)
-
-    
-    # explainer = LimeTabularExplainer(X_train.values,class_names = [1,0], feature_names = X_train.columns, mode = 'classification', discretize_continuous=False)
-    # exp=explainer.explain_instance(X_train.to_numpy()[0],clf.predict_proba,top_labels=32)
-    # print(exp.available_labels())
-    # sp_obj = submodular_pick.SubmodularPick(data=X_train.to_numpy(),explainer=explainer,num_exps_desired=X_train.shape[0], sample_size=X_train.shape[0], predict_fn=clf.predict_proba, num_features=32)
-    # W_pick=pd.DataFrame([dict(this.as_list(this.available_labels()[0])) for this in sp_obj.sp_explanations]).fillna(0)
-    # W_pick['prediction'] = [this.available_labels()[0] for this in sp_obj.sp_explanations]
-    # W_pick.to_csv('/home/dalalt1/PathoClass/somatic-germline/pathogenicity_classifier/output_files/predictions.maf', sep = '\t', index = None)
-    
-
-    # exp.save_to_file('/home/dalalt1/PathoClass/somatic-germline/pathogenicity_classifier/fig.html')
-
-    # exit()
-
-    # experimenting with shapely values
-    # explainer = shap.KernelExplainer(clf.predict_proba, shap.kmeans(X_train, 5))
-    # shap_values = explainer.shap_values(X_train)
-    # f = plt.figure()
-    # shap.summary_plot(shap_values, X_train)
-    # f.savefig(os.getcwd() + "/summary_plot1.png", bbox_inches='tight', dpi=600)
 
     # Use StratifiedKFold Cross Validation for an accurate representation of the model performance
     k_fold = StratifiedKFold(n_splits=10, random_state=42, shuffle = True)
@@ -304,18 +447,6 @@ def main():
     print("StratifiedKFold Test Mean Precision Across 10 Folds: %.5f (+/- %0.5f)" % (np.mean(results_kfold["test_precision"]), 2 * np.std(results_kfold["test_precision"])))
     print("StratifiedKFold Test Mean Recall Across 10 Folds: %.5f (+/- %0.5f)" % (np.mean(results_kfold["test_recall"]), 2 * np.std(results_kfold["test_recall"])))
     print("StratifiedKFold Test Mean F1 Score Across 10 Folds: %.5f (+/- %0.5f)\n" % (np.mean(results_kfold["test_f1_score"]), 2 * np.std(results_kfold["test_f1_score"])))
-
-    # k_fold = KFold(n_splits=10)
-
-    # cv_score = cross_val_score(clf, X_train, y_train, cv=k_fold, scoring='accuracy')
-    # print("\nAccuracy: %0.4f (+/- %0.4f)" % (cv_score.mean(), cv_score.std() * 2))
-
-    # cv_score = cross_val_score(clf, X_train, y_train, cv=k_fold, scoring='precision')
-    # print("\nPrecision: %0.4f (+/- %0.4f)" % (cv_score.mean(), cv_score.std() * 2))
-
-    # cv_score = cross_val_score(clf, X_train, y_train, cv=k_fold, scoring='recall')
-    # print("\nRecall: %0.4f (+/- %0.4f)" % (cv_score.mean(), cv_score.std() * 2))
-    # exit()
 
     #get feature importances
     coeffs = np.array(clf.feature_importances_)
@@ -349,27 +480,29 @@ def main():
     print('')
     
     # ############################################################################
-    f = [tup[0] for tup in list_keepcols]
-    imp = [tup[1] for tup in list_keepcols]
-    indices = np.argsort(imp)
+    # f = [tup[0] for tup in list_keepcols]
+    # imp = [tup[1] for tup in list_keepcols]
+    # indices = np.argsort(imp)
 
-    importances = []
-    for i in indices:
-        importances.append(imp[i])
+    # importances = []
+    # for i in indices:
+    #     importances.append(imp[i])
 
-    style.use('seaborn-poster')
-    matplotlib.rcParams['font.family'] = "sans-serif"
-    fig, ax = plt.subplots()
+    # style.use('seaborn-poster')
+    # matplotlib.rcParams['font.family'] = "sans-serif"
+    # fig, ax = plt.subplots()
 
-    plt.title('Feature Importances')
-    ax.barh(range(len(indices)), importances, color='tab:blue', align='center')
-    plt.yticks(range(len(indices)), [f[i] for i in indices])
+    # plt.title('Feature Importances')
+    # ax.barh(range(len(indices)), importances, color='tab:blue', align='center')
+    # plt.yticks(range(len(indices)), [f[i] for i in indices])
 
-    for i, v in enumerate(importances):
-        plt.text(v - 0.011, i, " "+str(round(v, 3)), color='white', verticalalignment="center",horizontalalignment="left")
+    # for i, v in enumerate(importances):
+    #     plt.text(v - 0.011, i, " "+str(round(v, 3)), color='black', verticalalignment="center",horizontalalignment="left")
 
-    plt.xlabel('Relative Importance')
-    fig.savefig('feature_importances.jpg', dpi = 500, bbox_inches = 'tight')
+    # plt.xlabel('Relative Importance')
+    # output_loc = classifier_output.rsplit('/', 1)[0]+'/feature_importances.jpg'
+    # fig.savefig(output_loc, dpi = 500, bbox_inches = 'tight')
+    # plt.clf()
 
     # ############################################################################
 
@@ -391,36 +524,21 @@ def main():
                 X_test_trimmed[colname] = 0
         X_test_trimmed = X_test_trimmed[final_columns]
 
-
     df_predictions_prob = clf.predict_proba(X_test_trimmed)
     df_predictions_prob = get_df_prob(df_predictions_prob)
     df_predictions = clf.predict(X_test_trimmed)
-    # explainer = lime_tabular.LimeTabularExplainer(X_test_trimmed.values, mode='classification',feature_names=X_test_trimmed.columns.tolist(), discretize_continuous=False, kernel_width=3)
-    # l=[]
-    # for n in range(0,X_test_trimmed.shape[0]):
-    #     exp = explainer.explain_instance(X_test_trimmed.values[n], clf.predict_proba, num_features=32)
-    #     features = exp.as_list(exp.available_labels()[0])
-    #     a=dict([(feature[0] + '_weight', feature[1]) for feature in features])
-    #     l.append(a)
-    # W_pick = pd.DataFrame(l).fillna(0)
-
-    # explainer = shap.KernelExplainer(clf.predict_proba, shap.kmeans(X_train, 100))
-    # shap_values = explainer.shap_values(X_test_trimmed[:5])
-    # print(type(shap_values))
-    # exit(0)
-    # W_pick = create_prediction_factors_df(shap_values, X_test_trimmed)
-    # print(W_pick.head())
-    # print(W_pick.shape)
-    # exit()
-
-    tc_exps, p0  = rf_explain(clf, X_test_trimmed)
-    W_pick = pd.DataFrame(tc_exps, columns = [x + '_weight' for x in X_test_trimmed.columns.tolist()])
     
     e = pd.Series(df_predictions)
     f = pd.Series(df_predictions_prob['prediction_prob'])
     X_test['prediction'] = e.values
     X_test['prediction_probability'] = f.values
     
+    if explainer is not None:
+        # get local feature explanations from chosen explainer
+        W_pick = localExplanations(explainer, clf, X_test_trimmed, X_train, X_test['prediction'], y_train)
+    else:
+        fidelityMetric(X_test_trimmed, X_train, X_test['prediction'], y_train)
+
     oncogenes, tumor_suppressors, gene_level_annotation = get_gene_level_annotations()
     
     #identify truncating mutations in oncogene
@@ -433,26 +551,12 @@ def main():
     X_test['prediction'] = np.where(X_test['truncating_oncogene']==1,
                                             0, X_test['prediction'])
 
-    # f_cols = ['Chromosome', 'Start_Position', 'End_Position', 'Reference_Allele', 'Alternate_Allele', 'Variant_Type', 'Variant_Classification', 'Hugo_Symbol', 'HGVSc', 'Protein_position', 'HGVSp_Short', 'Normal_Sample', 'n_alt_count', 'n_depth', 'ExAC2_AF', 'ExAC2_AF_ASJ', 'Consequence', 'CLINICAL_SIGNIFICANCE', 'GOLD_STARS', 'Exon_Number', 'oncogenic', 'last_exon_terminal', 'truncating_oncogene','prediction_probability','prediction']
 
-    # final_columns_to_report = [column for column in f_cols if column in X_test]
-
-    # X_test[final_columns_to_report].to_csv(classifier_output, sep = '\t', index = None)
-    # # final_columns_to_report = ['Chromosome', 'Start_Position', 'End_Position', 'Reference_Allele', 'Alternate_Allele', 'Variant_Type', 'Variant_Classification', 'Hugo_Symbol', 'HGVSc', 'Protein_position', 'HGVSp_Short', 'Normal_Sample', 'n_alt_count', 'n_depth', 'ExAC2_AF', 'ExAC2_AF_ASJ', 'Consequence', 'CLINICAL_SIGNIFICANCE', 'GOLD_STARS', 'Exon_Number', 'oncogenic', 'last_exon_terminal', 'prediction', 'prediction_probability', 'truncating_oncogene',]
-    # # .extend(W_pick.columns.tolist())
-
-    # # if 'exon_number' not in X_test and 'Consequence' not in X_test:
-    # #     final_columns_to_report = ['Chromosome', 'Start_Position', 'End_Position', 'Reference_Allele', 'Alternate_Allele', 'Variant_Type', 'Variant_Classification', 'Hugo_Symbol', 'HGVSc', 'Protein_position', 'HGVSp_Short', 'Normal_Sample', 'n_alt_count', 'n_depth', 'ExAC2_AF', 'ExAC2_AF_ASJ', 'CLINICAL_SIGNIFICANCE', 'GOLD_STARS', 'oncogenic', 'prediction', 'prediction_probability', 'truncating_oncogene',]
-    # #     final_columns_to_report.extend(W_pick.columns.tolist())
     engineered_cols = sorted(X_test_trimmed.columns.tolist() + W_pick.columns.tolist())
     orig_cols_subset = ['Chromosome', 'Start_Position', 'End_Position', 'Reference_Allele', 'Alternate_Allele', 'Variant_Type', 'Variant_Classification', 'Hugo_Symbol', 'HGVSc', 'Protein_position', 'HGVSp_Short', 'Normal_Sample', 'n_alt_count', 'n_depth', 'CLINICAL_SIGNIFICANCE']
     added_cols = ['truncating_oncogene', 'prediction_probability', 'prediction']
     
     total_columns = orig_cols_subset + engineered_cols + added_cols
-
-    # # # print(X_test[orig_cols_subset + added_cols].shape)
-    # # # print(X_test_trimmed.shape)
-    # # # print(W_pick.shape)
 
     X_test_extended = pd.concat([X_test[orig_cols_subset + added_cols], X_test_trimmed],axis = 1)
 
