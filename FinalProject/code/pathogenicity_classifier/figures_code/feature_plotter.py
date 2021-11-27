@@ -35,7 +35,7 @@ for i, v in enumerate(importances):
 ax.set_xlim(-0.16, 0.399)
 
 plt.xlabel('Weights')
-fig.savefig('local_feature_importances.jpg', dpi = 500, bbox_inches = 'tight')
+fig.savefig('../output_files/local_feature_importances.jpg', dpi = 500, bbox_inches = 'tight')
 
 
 vals = [g[x].values[0] for x in g if x in features]
