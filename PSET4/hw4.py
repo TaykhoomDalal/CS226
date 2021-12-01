@@ -1,4 +1,5 @@
 import datetime, os, pprint, re, sys, time, random, math
+from numpy.core.numeric import full
 import pandas as pd
 import numpy as np
 import seaborn as sns
@@ -58,9 +59,13 @@ def q1(genotype, phenotype):
 
     p_list = []
     for i in range(m):
-        slope, intercept, r, p, se = linregress(genotype[i], phenotype)
-        p_list.append(p)
 
+        geno = sm.add_constant(genotype[i])
+        fit = sm.OLS(phenotype, geno).fit()
+
+        p = fit.pvalues[1]
+        p_list.append(p)
+        
         if p <= alpha/m:
             sig_snps+=1
 
@@ -69,7 +74,7 @@ def q1(genotype, phenotype):
 
 
     #create a PCA model object
-    pca = PCA(n_components=2)
+    pca = PCA(n_components=2, random_state=0)
 
     #fit the data with the given parameters above and return the transformed data given the components
     projections = pca.fit_transform(np.transpose(genotype))
@@ -107,10 +112,10 @@ def q1(genotype, phenotype):
 def q2(EUR, AFR, ASN):
     d_hat = np.multiply((EUR - AFR), ASN).sum()/EUR.shape[0]
 
-    print("The value of d_hat from these 3 populations is:", d_hat)
+    print("Q2d: The value of d_hat from these 3 populations is:", d_hat)
 
     #two tailed test (multiply by 2) because we are testing if the expectation is greater OR less than 0
-    print("The p_value for H0 is:", norm(loc=0, scale = 4/1000).sf(d_hat)*2)
+    print("Q2e: The p_value for H0 is:", norm(loc=0, scale = 4/1000).sf(d_hat)*2)
 
 
 def main():
